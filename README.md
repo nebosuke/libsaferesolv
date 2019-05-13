@@ -11,7 +11,9 @@ LD_PRELOAD=/usr/local/lib/libsaferesolv.so java -jar app.jar
 
 ## ビルド方法
 ```
-make
+$ git clone https://github.com/nebosuke/libsaferesolv.git
+$ cd libsaferesolv
+$ make
 ```
 
 ## 背景

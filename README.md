@@ -20,7 +20,7 @@ $ cd libsaferesolv
 $ make
 ```
 
-## 背景
+## libsaferesolv.so が必要だった背景
 - ストレージやDBなど、クラウドで利用可能なマネージドサービスの可用性のために、DNSのTTL値は短く設定されている。
 - 利用するアプリ側でも Java などホスト名解決結果をキャッシュするアーキテクチャーでは、名前解決のキャッシュを無効化するか、十分に小さい時間を指定することが求められている。
     - Javaの場合、一般に ```-Dnetworkaddress.cache.ttl=0 -Dnetworkaddress.cache.negative.ttl=0``` を指定する

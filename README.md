@@ -9,6 +9,10 @@ getaddrinfo(3) をガードしたいプロセスの起動時に、LD_PRELOAD で
 LD_PRELOAD=/usr/local/lib/libsaferesolv.so java -jar app.jar
 ```
 
+## Dockerコンテナ内での利用
+LD_PRELOAD のメカニズムは、glibc特有の方法なので、alipneなど別のlibcを持つイメージではうまく動かない。
+Java実行環境の場合、```openjdk:8-jre-slim``` はOKだが、```openjdk:8-jre-alpine``` ではダメ。
+
 ## ビルド方法
 ```
 $ git clone https://github.com/nebosuke/libsaferesolv.git

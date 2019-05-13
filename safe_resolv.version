@@ -1,0 +1,7 @@
+{
+  global:
+    getaddrinfo;
+    freeaddrinfo;
+  # hide everything else
+  local: *;
+};

@@ -1,4 +1,4 @@
-# libsaferesolv.so for Linux
+# libsaferesolv.so for glibc/Linux
 
 getaddrinfo(3) をラップして、任意のプロセスが発行する getaddrinfo(3) の呼び出しキャプチャし、その結果を最大100件キャッシュする。
 通常は、オリジナルの glibc の実装の結果をそのまま返すが、DNSサーバーの停止、空のゾーン情報、/etc/hostsの破損など、リゾルバがIPアドレスを解決できない状況においても、24時間以内のもっとも新しい成功した結果で getaddrinfo(3) が結果を返すようになる。

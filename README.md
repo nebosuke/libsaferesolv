@@ -23,7 +23,7 @@ $ make
 ## libsaferesolv.so が必要だった背景
 - ストレージやDBなど、クラウドで利用可能なマネージドサービスの可用性のために、DNSのTTL値は短く設定されている。
 - 利用するアプリ側でも Java などホスト名解決結果をキャッシュするアーキテクチャーでは、名前解決のキャッシュを無効化するか、十分に小さい時間を指定することが求められている。
-    - Javaの場合、一般に ```-Dnetworkaddress.cache.ttl=0 -Dnetworkaddress.cache.negative.ttl=0``` を指定する
+    - Javaの場合、一般に ```lib/security/java.security``` ファイルにおいて ```networkaddress.cache.ttl=0 networkaddress.cache.negative.ttl=0``` を指定する
 - このため DNS の設定をミスるなど何か設定に問題が起きたとき、即座にすべてのサービスダウンが引き起こされてしまう。
 - ユースケースとしてIPアドレスが解決できることが期待できるときは、名前解決に失敗したときだけ、前回に成功したときの値を返すような getaddrinfo(3) が欲しい。
 

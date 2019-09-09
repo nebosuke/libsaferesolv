@@ -33,7 +33,7 @@ THE SOFTWARE.
 #include <dlfcn.h>
 #include <pthread.h>
 
-#define MAX_NUM_ENTRIES 100
+#define MAX_NUM_ENTRIES_PER_NODE 5
 #define CACHE_AGE_SECS (24 * 3600)
 
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
@@ -51,22 +51,51 @@ void *__load_func(const char *symbol)
     return ret;
 }
 
+typedef struct per_node_root
+{
+    struct per_node_root *next;
+    struct per_node_root *prev;
+    char *node;
+    struct resolved_addrinfo_entry *first;
+    struct resolved_addrinfo_entry *last;
+} per_node_root;
+
 typedef struct resolved_addrinfo_entry
 {
     struct resolved_addrinfo_entry *next;
     struct resolved_addrinfo_entry *prev;
-    char *node;
     struct addrinfo *hints;
     struct addrinfo *res;
     time_t timestamp;
 } resolved_addrinfo_entry;
 
-static struct resolved_addrinfo_entry *first = NULL;
-static struct resolved_addrinfo_entry *last = NULL;
+static struct per_node_root *first = NULL;
+static struct per_node_root *last = NULL;
 
-static int num_entries = 0;
+static struct per_node_root *get_per_node_root(const char *node)
+{
+    per_node_root *cur = first;
+    while (cur) {
+        if (0 == strcmp(cur->node, node)) {
+            return cur;
+        }
+        cur = cur->next;
+    }
 
-static struct resolved_addrinfo_entry *free_resolved_addrinfo_entry(struct resolved_addrinfo_entry *cur)
+    cur = (per_node_root *) calloc(sizeof(per_node_root), 1);
+    cur->node = (char *) calloc(1, strlen(node) + 1);
+    strcpy(cur->node, node);
+
+    cur->prev = last;
+    last = cur;
+    if (!first) {
+        first = cur;
+    }
+
+    return cur;
+}
+
+static struct resolved_addrinfo_entry *free_resolved_addrinfo_entry(resolved_addrinfo_entry *cur)
 {
     static void (*libc_freeaddrinfo)(struct addrinfo *res) = NULL;
     if (!libc_freeaddrinfo) {
@@ -76,8 +105,6 @@ static struct resolved_addrinfo_entry *free_resolved_addrinfo_entry(struct resol
         return NULL;
     }
 
-    free(cur->node);
-
     if (cur->hints) {
         free(cur->hints);
     }
@@ -85,7 +112,20 @@ static struct resolved_addrinfo_entry *free_resolved_addrinfo_entry(struct resol
         libc_freeaddrinfo(cur->res);
     }
 
-    struct resolved_addrinfo_entry *next = cur->next;
+    resolved_addrinfo_entry *next = cur->next;
+
+    free(cur);
+
+    return next;
+}
+
+static struct per_node_root *free_per_node_root(per_node_root *cur)
+{
+    resolved_addrinfo_entry *cur_addrinfo_entry = cur->first;
+    while (cur_addrinfo_entry) {
+        cur_addrinfo_entry = free_resolved_addrinfo_entry(cur_addrinfo_entry);
+    }
+    per_node_root *next = cur->next;
 
     free(cur);
 
@@ -95,9 +135,6 @@ static struct resolved_addrinfo_entry *free_resolved_addrinfo_entry(struct resol
 static void append_resolved_addrinfo_entry(const char *node, const struct addrinfo *hints, struct addrinfo *res)
 {
     resolved_addrinfo_entry *entry = (resolved_addrinfo_entry *) calloc(sizeof(resolved_addrinfo_entry), 1);
-
-    entry->node = (char *) calloc(1, strlen(node) + 1);
-    strcpy(entry->node, node);
 
     if (hints) {
         entry->hints = (struct addrinfo *) calloc(sizeof(struct addrinfo), 1);
@@ -115,19 +152,26 @@ static void append_resolved_addrinfo_entry(const char *node, const struct addrin
 
     pthread_mutex_lock(&lock);
     {
-        if (first) {
-            last->next = entry;
-            entry->prev = last;
-            last = entry;
+        per_node_root *root = get_per_node_root(node);
+
+        if (root->first) {
+            root->last->next = entry;
+            entry->prev = root->last;
+            root->last = entry;
         } else {
-            first = last = entry;
+            root->first = root->last = entry;
         }
 
-        num_entries++;
+        int num_entries = 0;
+        resolved_addrinfo_entry *cur = root->first;
+        while (cur) {
+            num_entries++;
+            cur = cur->next;
+        }
 
-        while (num_entries > MAX_NUM_ENTRIES) {
-            first = free_resolved_addrinfo_entry(first);
-            first->prev = NULL;
+        while (num_entries > MAX_NUM_ENTRIES_PER_NODE) {
+            root->first = free_resolved_addrinfo_entry(root->first);
+            root->first->prev = NULL;
             num_entries--;
         }
     }
@@ -141,11 +185,11 @@ static struct addrinfo * find_resolved_addrinfo(const char *node, const struct a
     time_t threshold = now.tv_sec - CACHE_AGE_SECS;
 
     pthread_mutex_lock(&lock);
-
-    resolved_addrinfo_entry *cur = last;
-    while (cur) {
-        if (cur->timestamp > threshold) {
-            if (0 == strcmp(node, cur->node)) {
+    {
+        per_node_root *root = get_per_node_root(node);
+        resolved_addrinfo_entry *cur = root->last;
+        while (cur) {
+            if (cur->timestamp > threshold) {
                 if (hints && hints->ai_flags == cur->hints->ai_flags
                           && hints->ai_family == cur->hints->ai_family
                           && hints->ai_socktype == cur->hints->ai_socktype
@@ -157,10 +201,9 @@ static struct addrinfo * find_resolved_addrinfo(const char *node, const struct a
                     return cur->res;
                 }
             }
+            cur = cur->prev;
         }
-        cur = cur->prev;
     }
-
     pthread_mutex_unlock(&lock);
 
     return NULL;
@@ -211,10 +254,10 @@ void freeaddrinfo(struct addrinfo *res)
 static void fini()
 {
     pthread_mutex_lock(&lock);
-    if (first) {
-        struct resolved_addrinfo_entry *cur = first;
+    {
+        per_node_root *cur = first;
         while (cur) {
-            cur = free_resolved_addrinfo_entry(cur);
+            cur = free_per_node_root(cur);
         }
         first = last = NULL;
     }

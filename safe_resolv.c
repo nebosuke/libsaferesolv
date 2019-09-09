@@ -51,26 +51,26 @@ void *__load_func(const char *symbol)
     return ret;
 }
 
-typedef struct resolved_entry
+typedef struct resolved_addrinfo_entry
 {
-    struct resolved_entry *next;
-    struct resolved_entry *prev;
+    struct resolved_addrinfo_entry *next;
+    struct resolved_addrinfo_entry *prev;
     char *node;
     struct addrinfo *hints;
     struct addrinfo *res;
     time_t timestamp;
-} resolved_entry;
+} resolved_addrinfo_entry;
 
-static struct resolved_entry *first = NULL;
-static struct resolved_entry *last = NULL;
+static struct resolved_addrinfo_entry *first = NULL;
+static struct resolved_addrinfo_entry *last = NULL;
 
 static int num_entries = 0;
 
-static struct resolved_entry *free_resolved_entry(struct resolved_entry *cur)
+static struct resolved_addrinfo_entry *free_resolved_addrinfo_entry(struct resolved_addrinfo_entry *cur)
 {
-    static void (*lib_freeaddrinfo)(struct addrinfo *res) = NULL;
-    if (!lib_freeaddrinfo) {
-        lib_freeaddrinfo = __load_func("freeaddrinfo");
+    static void (*libc_freeaddrinfo)(struct addrinfo *res) = NULL;
+    if (!libc_freeaddrinfo) {
+        libc_freeaddrinfo = __load_func("freeaddrinfo");
     }
     if (!cur) {
         return NULL;
@@ -82,19 +82,19 @@ static struct resolved_entry *free_resolved_entry(struct resolved_entry *cur)
         free(cur->hints);
     }
     if (cur->res) {
-        lib_freeaddrinfo(cur->res);
+        libc_freeaddrinfo(cur->res);
     }
 
-    struct resolved_entry *next = cur->next;
+    struct resolved_addrinfo_entry *next = cur->next;
 
     free(cur);
 
     return next;
 }
 
-static void append_resolved_entry(const char *node, const struct addrinfo *hints, struct addrinfo *res)
+static void append_resolved_addrinfo_entry(const char *node, const struct addrinfo *hints, struct addrinfo *res)
 {
-    resolved_entry *entry = (resolved_entry *) calloc(sizeof(resolved_entry), 1);
+    resolved_addrinfo_entry *entry = (resolved_addrinfo_entry *) calloc(sizeof(resolved_addrinfo_entry), 1);
 
     entry->node = (char *) calloc(1, strlen(node) + 1);
     strcpy(entry->node, node);
@@ -126,7 +126,7 @@ static void append_resolved_entry(const char *node, const struct addrinfo *hints
         num_entries++;
 
         while (num_entries > MAX_NUM_ENTRIES) {
-            first = free_resolved_entry(first);
+            first = free_resolved_addrinfo_entry(first);
             first->prev = NULL;
             num_entries--;
         }
@@ -134,7 +134,7 @@ static void append_resolved_entry(const char *node, const struct addrinfo *hints
     pthread_mutex_unlock(&lock);
 }
 
-static struct addrinfo * find_resolved_entry(const char *node, const struct addrinfo *hints)
+static struct addrinfo * find_resolved_addrinfo(const char *node, const struct addrinfo *hints)
 {
     struct timeval now;
     gettimeofday(&now, NULL);
@@ -142,7 +142,7 @@ static struct addrinfo * find_resolved_entry(const char *node, const struct addr
 
     pthread_mutex_lock(&lock);
 
-    resolved_entry *cur = last;
+    resolved_addrinfo_entry *cur = last;
     while (cur) {
         if (cur->timestamp > threshold) {
             if (0 == strcmp(node, cur->node)) {
@@ -169,21 +169,21 @@ static struct addrinfo * find_resolved_entry(const char *node, const struct addr
 __attribute__((visibility("default")))
 int getaddrinfo(const char *node, const char *service, const struct addrinfo *hints, struct addrinfo **res)
 {
-    static int (*lib_getaddrinfo)(const char *node, const char *service, const struct addrinfo *hints, struct addrinfo **res) = NULL;
-    static void (*lib_freeaddrinfo)(struct addrinfo *res) = NULL;
+    static int (*libc_getaddrinfo)(const char *node, const char *service, const struct addrinfo *hints, struct addrinfo **res) = NULL;
+    static void (*libc_freeaddrinfo)(struct addrinfo *res) = NULL;
 
     int ret;
 
-    if (!lib_getaddrinfo) {
-        lib_getaddrinfo = __load_func("getaddrinfo");
+    if (!libc_getaddrinfo) {
+        libc_getaddrinfo = __load_func("getaddrinfo");
     }
-    if (!lib_freeaddrinfo) {
-        lib_freeaddrinfo = __load_func("freeaddrinfo");
+    if (!libc_freeaddrinfo) {
+        libc_freeaddrinfo = __load_func("freeaddrinfo");
     }
 
-    ret = lib_getaddrinfo(node, service, hints, res);
+    ret = libc_getaddrinfo(node, service, hints, res);
     if (ret != 0) {
-        *res = find_resolved_entry(node, hints);
+        *res = find_resolved_addrinfo(node, hints);
         if (*res) {
             ret = 0;
         }
@@ -193,10 +193,10 @@ int getaddrinfo(const char *node, const char *service, const struct addrinfo *hi
             i += 1;
         }
         if (i > 0) {
-            append_resolved_entry(node, hints, *res);
+            append_resolved_addrinfo_entry(node, hints, *res);
         } else {
-            lib_freeaddrinfo(*res);
-            *res = find_resolved_entry(node, hints);
+            libc_freeaddrinfo(*res);
+            *res = find_resolved_addrinfo(node, hints);
         }
     }
     return ret;
@@ -212,9 +212,9 @@ static void fini()
 {
     pthread_mutex_lock(&lock);
     if (first) {
-        struct resolved_entry *cur = first;
+        struct resolved_addrinfo_entry *cur = first;
         while (cur) {
-            cur = free_resolved_entry(cur);
+            cur = free_resolved_addrinfo_entry(cur);
         }
         first = last = NULL;
     }

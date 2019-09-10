@@ -29,14 +29,17 @@ THE SOFTWARE.
 #include <string.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 #include <sys/time.h>
 #include <dlfcn.h>
 #include <pthread.h>
 
 #define MAX_NUM_ENTRIES_PER_NODE 5
 #define CACHE_AGE_SECS (24 * 3600)
+#define LOG stderr
 
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+static time_t last_dump_timestamp_sec = 0;
 
 static void fini() __attribute__((destructor));
 
@@ -58,6 +61,7 @@ typedef struct per_node_root
     char *node;
     struct resolved_addrinfo_entry *first;
     struct resolved_addrinfo_entry *last;
+    int num_entries;
 } per_node_root;
 
 typedef struct resolved_addrinfo_entry
@@ -92,6 +96,8 @@ static struct per_node_root *get_per_node_root(const char *node)
         first = cur;
     }
 
+    fprintf(LOG, "### make a new per_node_root: %s\n", node);
+
     return cur;
 }
 
@@ -124,12 +130,25 @@ static struct per_node_root *free_per_node_root(per_node_root *cur)
     resolved_addrinfo_entry *cur_addrinfo_entry = cur->first;
     while (cur_addrinfo_entry) {
         cur_addrinfo_entry = free_resolved_addrinfo_entry(cur_addrinfo_entry);
+        cur->num_entries -= 1;
     }
     per_node_root *next = cur->next;
 
     free(cur);
 
     return next;
+}
+
+static void dump_all_entries()
+{
+    struct in_addr addr;
+    per_node_root *cur = first;
+    while (cur) {
+        resolved_addrinfo_entry *resolved = cur->last;
+        addr.s_addr= ((struct sockaddr_in *)(resolved->res->ai_addr))->sin_addr.s_addr;
+        fprintf(LOG, "### dump cached resolved_addrinfo_entry: node=%s, addr=%s\n", cur->node, inet_ntoa(addr));
+        cur = cur->next;
+    }
 }
 
 static void append_resolved_addrinfo_entry(const char *node, const struct addrinfo *hints, struct addrinfo *res)
@@ -150,6 +169,8 @@ static void append_resolved_addrinfo_entry(const char *node, const struct addrin
     gettimeofday(&now, NULL);
     entry->timestamp = now.tv_sec;
 
+    fprintf(LOG, "### append next resolved_addrinfo_entry: %s\n", node);
+
     pthread_mutex_lock(&lock);
     {
         per_node_root *root = get_per_node_root(node);
@@ -162,17 +183,18 @@ static void append_resolved_addrinfo_entry(const char *node, const struct addrin
             root->first = root->last = entry;
         }
 
-        int num_entries = 0;
-        resolved_addrinfo_entry *cur = root->first;
-        while (cur) {
-            num_entries++;
-            cur = cur->next;
-        }
+        root->num_entries += 1;
 
-        while (num_entries > MAX_NUM_ENTRIES_PER_NODE) {
+        while (root->num_entries > MAX_NUM_ENTRIES_PER_NODE) {
+            fprintf(LOG, "### release stale resolved_addrinfo_entry: %s\n", node);
             root->first = free_resolved_addrinfo_entry(root->first);
             root->first->prev = NULL;
-            num_entries--;
+            root->num_entries -= 1;
+        }
+
+        if (last_dump_timestamp_sec < (now.tv_sec - 60)) {
+            dump_all_entries();
+            last_dump_timestamp_sec = now.tv_sec;
         }
     }
     pthread_mutex_unlock(&lock);
@@ -195,9 +217,11 @@ static struct addrinfo * find_resolved_addrinfo(const char *node, const struct a
                           && hints->ai_socktype == cur->hints->ai_socktype
                           && hints->ai_protocol == cur->hints->ai_protocol) {
                     pthread_mutex_unlock(&lock);
+                    fprintf(LOG, "### find the cached resolved_addrinfo_entry: %s\n", node);
                     return cur->res;
                 } else if (cur->hints == NULL) {
                     pthread_mutex_unlock(&lock);
+                    fprintf(LOG, "### find the cached resolved_addrinfo_entry: %s\n", node);
                     return cur->res;
                 }
             }
@@ -223,6 +247,8 @@ int getaddrinfo(const char *node, const char *service, const struct addrinfo *hi
     if (!libc_freeaddrinfo) {
         libc_freeaddrinfo = __load_func("freeaddrinfo");
     }
+
+    fprintf(LOG, "### getaddrinfo: %s\n", node);
 
     ret = libc_getaddrinfo(node, service, hints, res);
     if (ret != 0) {

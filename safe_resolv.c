@@ -90,10 +90,12 @@ static struct per_node_root *get_per_node_root(const char *node)
     cur->node = (char *) calloc(1, strlen(node) + 1);
     strcpy(cur->node, node);
 
-    cur->prev = last;
-    last = cur;
-    if (!first) {
-        first = cur;
+    if (first) {
+        cur->prev = last;
+        last->next = cur;
+        last = cur;
+    } else {
+        first = last = cur;
     }
 
     fprintf(LOG, "### make a new per_node_root: %s\n", node);
@@ -169,7 +171,7 @@ static void append_resolved_addrinfo_entry(const char *node, const struct addrin
     gettimeofday(&now, NULL);
     entry->timestamp = now.tv_sec;
 
-    fprintf(LOG, "### append next resolved_addrinfo_entry: %s\n", node);
+    fprintf(LOG, "### append resolved_addrinfo_entry: %s\n", node);
 
     pthread_mutex_lock(&lock);
     {

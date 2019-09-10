@@ -98,8 +98,6 @@ static struct per_node_root *get_per_node_root(const char *node)
         first = last = cur;
     }
 
-    fprintf(LOG, "### make a new per_node_root: %s\n", node);
-
     return cur;
 }
 
@@ -144,11 +142,20 @@ static struct per_node_root *free_per_node_root(per_node_root *cur)
 static void dump_all_entries()
 {
     struct in_addr addr;
+
+    time_t now = time(NULL);
+    struct tm *ts;
+    char sz_time[80];
+
+    ts = localtime(&now);
+    strftime(sz_time, sizeof(sz_time), "%Y-%m-%d %H:%M:%S", ts);
+
     per_node_root *cur = first;
+
     while (cur) {
         resolved_addrinfo_entry *resolved = cur->last;
         addr.s_addr= ((struct sockaddr_in *)(resolved->res->ai_addr))->sin_addr.s_addr;
-        fprintf(LOG, "### dump cached resolved_addrinfo_entry: node=%s, addr=%s\n", cur->node, inet_ntoa(addr));
+        fprintf(LOG, "### dump cached resolved_addrinfo_entry: time=%s, node=%s, addr=%s\n", sz_time, cur->node, inet_ntoa(addr));
         cur = cur->next;
     }
 }
@@ -171,8 +178,6 @@ static void append_resolved_addrinfo_entry(const char *node, const struct addrin
     gettimeofday(&now, NULL);
     entry->timestamp = now.tv_sec;
 
-    fprintf(LOG, "### append resolved_addrinfo_entry: %s\n", node);
-
     pthread_mutex_lock(&lock);
     {
         per_node_root *root = get_per_node_root(node);
@@ -188,7 +193,6 @@ static void append_resolved_addrinfo_entry(const char *node, const struct addrin
         root->num_entries += 1;
 
         while (root->num_entries > MAX_NUM_ENTRIES_PER_NODE) {
-            fprintf(LOG, "### release stale resolved_addrinfo_entry: %s\n", node);
             root->first = free_resolved_addrinfo_entry(root->first);
             root->first->prev = NULL;
             root->num_entries -= 1;
@@ -204,6 +208,7 @@ static void append_resolved_addrinfo_entry(const char *node, const struct addrin
 
 static struct addrinfo * find_resolved_addrinfo(const char *node, const struct addrinfo *hints)
 {
+    struct in_addr addr;
     struct timeval now;
     gettimeofday(&now, NULL);
     time_t threshold = now.tv_sec - CACHE_AGE_SECS;
@@ -219,11 +224,13 @@ static struct addrinfo * find_resolved_addrinfo(const char *node, const struct a
                           && hints->ai_socktype == cur->hints->ai_socktype
                           && hints->ai_protocol == cur->hints->ai_protocol) {
                     pthread_mutex_unlock(&lock);
-                    fprintf(LOG, "### find the cached resolved_addrinfo_entry: %s\n", node);
+                    addr.s_addr= ((struct sockaddr_in *)(cur->res->ai_addr))->sin_addr.s_addr;
+                    fprintf(LOG, "### use cached resolved_addrinfo_entry: node=%s, addr=%s\n", node, inet_ntoa(addr));
                     return cur->res;
                 } else if (cur->hints == NULL) {
                     pthread_mutex_unlock(&lock);
-                    fprintf(LOG, "### find the cached resolved_addrinfo_entry: %s\n", node);
+                    addr.s_addr= ((struct sockaddr_in *)(cur->res->ai_addr))->sin_addr.s_addr;
+                    fprintf(LOG, "### use cached resolved_addrinfo_entry: node=%s, addr=%s\n", node, inet_ntoa(addr));
                     return cur->res;
                 }
             }
@@ -241,7 +248,12 @@ int getaddrinfo(const char *node, const char *service, const struct addrinfo *hi
     static int (*libc_getaddrinfo)(const char *node, const char *service, const struct addrinfo *hints, struct addrinfo **res) = NULL;
     static void (*libc_freeaddrinfo)(struct addrinfo *res) = NULL;
 
+    struct in_addr addr;
     int ret;
+
+    struct timeval begin, end;
+    float diff_time;
+    gettimeofday(&begin, NULL);
 
     if (!libc_getaddrinfo) {
         libc_getaddrinfo = __load_func("getaddrinfo");
@@ -249,8 +261,6 @@ int getaddrinfo(const char *node, const char *service, const struct addrinfo *hi
     if (!libc_freeaddrinfo) {
         libc_freeaddrinfo = __load_func("freeaddrinfo");
     }
-
-    fprintf(LOG, "### getaddrinfo: %s\n", node);
 
     ret = libc_getaddrinfo(node, service, hints, res);
     if (ret != 0) {
@@ -270,6 +280,14 @@ int getaddrinfo(const char *node, const char *service, const struct addrinfo *hi
             *res = find_resolved_addrinfo(node, hints);
         }
     }
+
+    gettimeofday(&end, NULL);
+    diff_time = (end.tv_sec - begin.tv_sec +  (float)(end.tv_usec - begin.tv_usec) / 1000000) * 1000.0;
+
+    struct addrinfo *addrinfo = *res;
+    addr.s_addr= ((struct sockaddr_in *)(addrinfo->ai_addr))->sin_addr.s_addr;
+    fprintf(LOG, "### getaddrinfo: node=%s, addr=%s, delta=%.3f[ms]\n", node, inet_ntoa(addr), diff_time);
+
     return ret;
 }
 

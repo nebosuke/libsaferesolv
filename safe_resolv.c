@@ -219,7 +219,8 @@ static struct addrinfo * find_resolved_addrinfo(const char *node, const struct a
         resolved_addrinfo_entry *cur = root->last;
         while (cur) {
             if (cur->timestamp > threshold) {
-                if (hints && hints->ai_flags == cur->hints->ai_flags
+                if (hints && cur->hints
+                          && hints->ai_flags == cur->hints->ai_flags
                           && hints->ai_family == cur->hints->ai_family
                           && hints->ai_socktype == cur->hints->ai_socktype
                           && hints->ai_protocol == cur->hints->ai_protocol) {

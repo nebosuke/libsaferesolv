@@ -134,6 +134,7 @@ static struct per_node_root *free_per_node_root(per_node_root *cur)
     }
     per_node_root *next = cur->next;
 
+    free(cur->node);
     free(cur);
 
     return next;

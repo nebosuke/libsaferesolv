@@ -287,8 +287,10 @@ int getaddrinfo(const char *node, const char *service, const struct addrinfo *hi
     diff_time = (end.tv_sec - begin.tv_sec +  (float)(end.tv_usec - begin.tv_usec) / 1000000) * 1000.0;
 
     struct addrinfo *addrinfo = *res;
-    addr.s_addr= ((struct sockaddr_in *)(addrinfo->ai_addr))->sin_addr.s_addr;
-    fprintf(LOG, "### getaddrinfo: node=%s, addr=%s, delta=%.3f[ms]\n", node, inet_ntoa(addr), diff_time);
+    if (ret == 0) {
+        addr.s_addr= ((struct sockaddr_in *)(addrinfo->ai_addr))->sin_addr.s_addr;
+        fprintf(LOG, "### getaddrinfo: node=%s, addr=%s, delta=%.3f[ms]\n", node, inet_ntoa(addr), diff_time);
+    }
 
     return ret;
 }

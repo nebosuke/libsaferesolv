@@ -156,10 +156,12 @@ static void dump_all_entries()
 
     while (cur) {
         resolved_addrinfo_entry *resolved = cur->last;
-        addr.s_addr= ((struct sockaddr_in *)(resolved->res->ai_addr))->sin_addr.s_addr;
-        openlog(SYSLOG_IDENT, 0, LOG_USER);
-        syslog(LOG_INFO, "dump cached resolved_addrinfo_entry: time=%s, node=%s, addr=%s", sz_time, cur->node, inet_ntoa(addr));
-        closelog();
+        if (resolved) {
+            addr.s_addr= ((struct sockaddr_in *)(resolved->res->ai_addr))->sin_addr.s_addr;
+            openlog(SYSLOG_IDENT, 0, LOG_USER);
+            syslog(LOG_INFO, "dump cached resolved_addrinfo_entry: time=%s, node=%s, addr=%s", sz_time, cur->node, inet_ntoa(addr));
+            closelog();
+        }
         cur = cur->next;
     }
 }
@@ -238,7 +240,7 @@ static struct addrinfo * find_resolved_addrinfo(const char *node, const struct a
                     pthread_mutex_unlock(&lock);
                     addr.s_addr= ((struct sockaddr_in *)(cur->res->ai_addr))->sin_addr.s_addr;
                     openlog(SYSLOG_IDENT, 0, LOG_USER);
-                    syslog(LOG_INFO, "### use cached resolved_addrinfo_entry: node=%s, addr=%s\n", node, inet_ntoa(addr));
+                    syslog(LOG_INFO, "use cached resolved_addrinfo_entry: node=%s, addr=%s\n", node, inet_ntoa(addr));
                     closelog();
                     return cur->res;
                 }

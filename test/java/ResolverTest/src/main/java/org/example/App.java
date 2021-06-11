@@ -6,6 +6,7 @@ import java.net.UnknownHostException;
 import java.util.Arrays;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Semaphore;
 
 public class App {
 
@@ -18,12 +19,21 @@ public class App {
     public static void main(String[] args) {
         java.security.Security.setProperty("networkaddress.cache.ttl" , "1");
         ExecutorService pool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
-        for (int i = 0; i < 100000; i++) {
-            pool.submit(() -> {
-                Arrays.stream(HOSTS).forEach(host -> System.out.println(host + ": " + resolve(host)));
-            });
+        try {
+            Semaphore rateLimiter = new Semaphore(Runtime.getRuntime().availableProcessors());
+            while (true) {
+                rateLimiter.acquireUninterruptibly();
+                pool.submit(() -> {
+                    try {
+                        Arrays.stream(HOSTS).forEach(host -> System.out.println(host + ": " + resolve(host)));
+                    } finally {
+                        rateLimiter.release();
+                    }
+                });
+            }
+        } finally {
+            pool.shutdown();
         }
-        pool.shutdown();
     }
 
     private static String resolve(String host) {
